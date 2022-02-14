@@ -1,0 +1,261 @@
+---
+title: "Time Series"
+author: "John Mazon"
+date: "2/13/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("remotes")
+#install.packages('USgas')
+#remotes::install_github("tidyverts/tsibble")
+library(tsibble)
+library(ggplot2)
+library(tsibble)
+library(feasts) 
+library(tsibbledata)
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+```
+
+
+
+
+## DATA 624 - Homework #1
+###### Please submit exercises 2.1, 2.2, 2.3, 2.4, 2.5 and 2.8 from the Hyndman online Forecasting book.  Please submit both your Rpubs link as well as attach the .rmd file with your code.
+
+#### Question 2.1
+Use the help function to explore what the series gafa_stock, PBS, vic_elec and pelt represent.
+a.Use autoplot() to plot some of the series in these data sets.
+
+```{r}
+#help allows us to explore each series in detail
+
+help("gafa_stock")
+help("PBS")
+help("vic_elec")
+help("pelt")
+```
+
+```{r}
+head(gafa_stock)
+gafa_stock %>% autoplot(Open)
+
+autoplot(vic_elec, Demand) +
+  labs(title = "Electricity Demand",
+       subtitle = "Victoria - Australia",
+       y = "MWTTS")
+```
+
+
+b.What is the time interval of each series?
+```{r}
+interval(gafa_stock)
+interval(PBS)
+interval(vic_elec)
+interval(pelt)
+```
+gafa_stock: One day
+
+PBS: One month
+
+vic_elec: 30 minutes
+
+pelt: One year
+
+#### Question 2.2
+Use filter() to find what days corresponded to the peak closing price for each of the four stocks in gafa_stock.
+
+```{r}
+the_output <- gafa_stock %>% 
+             group_by(Symbol) %>%
+             filter(Close == max(Close)) %>%
+             arrange(desc(Close))
+the_output
+```
+Peak closing price for AMZN is with price 2039.51
+Peak closing price for GOOG is with price 1268.33	
+Peak closing price for AAPL is with price 232.07	
+Peak closing price for FB is with price 217.50	
+
+#### Question 2.3
+Download the file tute1.csv from the book website, open it in Excel (or some other spreadsheet application), and review its contents. You should find four columns of information. Columns B through D each contain a quarterly series, labelled Sales, AdBudget and GDP. Sales contains the quarterly sales for a small company over the period 1981-2005. AdBudget is the advertising budget and GDP is the gross domestic product. All series have been adjusted for inflation.
+
+a. You can read the data into R with the following script:
+
+```{r}
+tute1 <- read.csv("https://raw.githubusercontent.com/johnm1990/DATA624/main/tute1.csv") 
+head(tute1)
+
+```
+
+b. Convert the data to time series
+
+```{r}
+mytimeseries <- tute1 %>%
+  mutate(Quarter = yearmonth(Quarter)) %>%
+  as_tsibble(index = Quarter)
+```
+
+
+c. Construct time series plots of each of the three series
+```{r}
+mytimeseries %>%
+  pivot_longer(-Quarter) %>%
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line() +
+  facet_grid(name ~ ., scales = "free_y")
+
+```
+
+```{r}
+mytimeseries %>%
+  pivot_longer(-Quarter) %>%
+  ggplot(aes(x = Quarter, y = value, colour = name)) +
+  geom_line() 
+  #facet_grid(name ~ ., scales = "free_y")
+
+```
+
+Check what happens when you don’t include facet_grid().
+
+without 'facet_grid()' all series are jumbled into one graph [notice value]
+
+
+#### Question 2.4
+The USgas package contains data on the demand for natural gas in the US.
+a. Install the USgas package.
+
+```{r}
+library(USgas)
+```
+
+b. Create a tsibble from us_total with year as the index and state as the key.
+```{r}
+us_total_tb <- us_total
+
+us_total_tb <- us_total_tb %>%
+  as_tsibble(index = year, key = state)
+
+head(us_total_tb)
+```
+
+c.Plot the annual natural gas consumption by state for the New England area (comprising the states of Maine, Vermont, New Hampshire, Massachusetts, Connecticut and Rhode Island).
+
+```{r}
+newengland_gc <- us_total_tb %>%
+  filter(state == 'Maine' |
+           state == 'Vermont' |
+           state == 'New Hampshire' |
+           state == 'Massachusetts' |
+           state == 'Connecticut' |
+           state == 'Rhode Island') %>%
+  mutate(y = y/1e3)
+#the above mutate y/1e3 is to help visualize in thousandths
+
+head(newengland_gc)
+
+
+autoplot(newengland_gc, y) +
+  labs(title = "The annual natural gas consumption by state",
+       subtitle = "New England Zone",
+       y = "Consumption in thousands")
+```
+
+
+#### Question 2.5
+a. Download tourism.xlsx from the book website and read it into R using readxl::read_excel().
+```{r}
+#tourism_xlsx <- readxl::read_excel("C:/Users/Pc/Downloads/tourism.xlsx")
+myxlsx = "https://raw.githubusercontent.com/johnm1990/DATA624/main/tourism.xlsx"
+tourism_xlsx <- read.xlsx(myxlsx, sheet=1, startRow=1)
+head(tourism_xlsx)
+
+index(tourism)
+key(tourism)
+head(tourism)
+```
+b.Create a tsibble which is identical to the tourism tsibble from the tsibble package.
+```{r}
+tourism_xlsx_tb <- tourism_xlsx %>% 
+  mutate(Quarter = yearquarter(Quarter)) %>%
+  as_tsibble(index = Quarter, key = c(Region, State, Purpose)) -> tourism_xlsx
+head(tourism_xlsx_tb)
+
+```
+
+c.Find what combination of Region and Purpose had the maximum number of overnight trips on average.
+
+Appears that output stating purpose as 'Visting' and 'Region' indicating Melbourne for most trips
+
+```{r}
+tourism_xlsx_tb %>% group_by(Region, Purpose) %>%
+ summarise(Trips = mean(Trips)) %>%
+ ungroup() %>%
+ filter(Trips == max(Trips))
+
+```
+
+d.Create a new tsibble which combines the Purposes and Regions, and just has total trips by State.
+```{r}
+t_by_state <- tourism_xlsx_tb %>%
+  group_by(State) %>%
+  summarise(Trips = sum(Trips)) %>%
+  mutate(Quarter = yearquarter(Quarter)) %>%
+  as_tsibble(index = Quarter, key = State)
+
+head(t_by_state)
+
+```
+
+
+
+#### Question 2.8
+Monthly Australian retail data is provided in aus_retail. Select one of the time series as follows (but choose your own seed value):
+```{r}
+head(aus_retail)
+set.seed(718212)
+x <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+head(x)
+
+```
+Explore your chosen retail time series using the following functions:
+autoplot(), gg_season(), gg_subseries(), gg_lag(),
+
+ACF() %>% autoplot()
+
+Using the exploration tools we see an increase in trend
+
+```{r}
+autoplot(x, Turnover) +
+  labs(title = "Turnover for Electrical and electronic goods retailing",
+       subtitle = "Series: A3349361W",
+       y = "Turnover")
+
+```
+
+
+```{r}
+gg_season(x, Turnover) +
+  labs(title = "Turnover for Queensland Takeaway food services",
+       subtitle = "Series: A3349361W",
+       y = "Turnover")
+
+```
+
+Can you spot any seasonality, cyclicity and trend? What do you learn about the series?
+
+From the initial visualization exploration graph we see a positive increasing trend from 1990 to 2020. Seasonality also may be witnessed as defined 
+Seasonal
+    A seasonal pattern occurs when a time series is affected by seasonal factors such as the time of the year or the day of the week. Seasonality is always of a fixed and known period. 
+Cyclic
+    A cycle occurs when the data exhibit rises and falls that are not of a fixed frequency. These fluctuations are usually due to economic conditions, and are often related to the “business cycle.” The duration of these fluctuations is usually at least 2 years. 
+
+
+
+
