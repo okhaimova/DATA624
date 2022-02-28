@@ -1,0 +1,429 @@
+---
+title: "DATA624_HW3"
+author: "John Mazon"
+date: "2/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+library(dplyr)
+library(latex2exp)
+library(ggplot2)
+library(fabletools)
+library(lubridate)
+library(tidyverse)
+library(forecast)
+library(fma)
+library(magrittr)
+library(tsibble)
+library(feasts)
+library(modelr)
+```
+
+##  Week 4 Forecasting |21-Feb 27-Feb 
+
+Do exercises 5.1, 5.2, 5.3, 5.4 and 5.7 in the Hyndman book.  
+
+5.1 Produce forecasts for the following series using whichever of NAIVE(y), SNAIVE(y) or RW(y ~ drift()) is more appropriate in each case:
+
+Australian Population (global_economy)
+
+From below we can see a clear indication that pop. is increasing at a constant rate. The RW drift method is a forecasting method that unlike averages/naive methods does not have a constant (flat) forecast, instead the drift method can increase or decrease over time, this is why its a great method when it comes to forecasting linear trends. 
+
+```{r}
+global_economy %>%
+  filter(Country == "Australia") %>%
+  autoplot(Population)
+```
+```{r}
+Australia <- global_economy %>%
+  filter(Country=="Australia")
+
+Australia_popu_fit <- Australia %>%
+  model(RW(Population ~ drift())) %>%
+  forecast(h=10)
+
+
+Australia_popu_fit %>% autoplot(Australia)
+```
+
+
+Bricks (aus_production)
+
+From below we can interpret as seasonality detection. The most appropriate would be   Seasonal Naive Method. Seasonal naive methods: This method is like the naive method but predicts the last observed value of the same season of the year. 
+
+
+```{r}
+aus_production %>%
+  autoplot(Bricks)
+```
+
+```{r}
+
+australia_bricks <- aus_production %>%
+  filter(!is.na(Bricks))
+
+
+australia_bricks %>%
+  autoplot(Bricks)
+```
+We can see from SNAIVE use below the continuation of the pattern
+
+```{r}
+
+australia_bricks_fit <- australia_bricks %>%
+  model(SNAIVE(Bricks ~ lag("year"))) %>%
+  forecast(h=5)
+australia_bricks_fit %>% autoplot(australia_bricks) +
+labs(title="SNAIVE Forecast of the Australia Brick Prod", 
+       subtitle = "Five Year Forecast", 
+       xlab="The Year" )
+
+
+```
+
+
+
+
+
+NSW Lambs (aus_livestock)
+```{r}
+aus_livestock %>%
+  filter(Animal == "Lambs",
+         State == "New South Wales"
+         ) %>%
+  autoplot(Count) +
+  labs(title = "The NSW Lambs")
+```
+
+
+```{r}
+aus_livestock %>%
+  filter(State == "New South Wales",
+         Animal == "Lambs") %>%
+  model(NAIVE(Count)) %>%
+  forecast(h = 15)
+
+
+
+```
+
+The naive model would be sufficient in this case due to possible no trend/seasonality. From the plot below there doesn’t seem to be an upward or downward trend or a seasonal trend
+
+```{r}
+aus_livestock %>%
+  filter(State == "New South Wales",
+         Animal == "Lambs") %>%
+  model(NAIVE(Count)) %>%
+  forecast(h = 15) %>%
+  autoplot(aus_livestock)
+```
+
+
+
+
+Household wealth (hh_budget).
+```{r}
+hh_budget %>% 
+  autoplot(Wealth) + labs(title = "Household wealth")
+```
+From the graph we can see that there seem to be some sort of cycle but no seasonal trend. There is also a noteable upward trend for the last 7-8 years so we will perform a drift model.
+
+```{r}
+hh_budget %>%
+  model(drift = RW(Wealth ~ drift())) %>% 
+  forecast(h = 10) %>% 
+  autoplot(hh_budget) + 
+  labs(title = 'Wealth')
+```
+
+
+Australian takeaway food turnover (aus_retail).
+
+From the graph below we can see we have a noteable upward trend. A seasonal trend is possibly not clear by just looking at the graph (this appears to fluctate randomly).
+
+```{r}
+aus_foturnover  <-
+  aus_retail %>% 
+  filter(stringr::str_detect(State,"Australian") &
+           stringr::str_detect(Industry,"takeaway food")) %>% 
+  select(c(Month,Turnover))
+aus_foturnover %>% autoplot(Turnover) 
+```
+
+
+
+```{r}
+aus_retail <- tsibbledata::aus_retail
+
+x <- aus_retail  %>% filter(Industry == 'Takeaway food services')  %>% summarize(Turnover=sum(Turnover))
+fit<-x%>% model(RW(Turnover ~ drift()))
+fit %>%
+  forecast(h = "10 years")   %>%
+  autoplot(x)+labs(title='Turnover')
+```
+
+
+
+
+
+
+
+5.2 Use the Facebook stock price (data set gafa_stock) to do the following:
+
+Produce a time plot of the series.
+
+```{r}
+unique(gafa_stock$Symbol)
+
+
+head(gafa_stock)
+```
+
+
+```{r}
+facebook_stock <- gafa_stock %>%
+  filter(Symbol == 'FB', year(Date) >= 2015) %>%
+  mutate(day = row_number()) %>%
+  update_tsibble(index = day, regular = TRUE) %>%
+  select(Date, Close)
+
+facebook_stock %>%
+  autoplot(Close) +
+  labs(y = '$US', title = 'The Facebook Stock Price')
+
+```
+
+
+
+Produce forecasts using the drift method and plot them.
+
+
+From the text book
+
+```{r}
+facebook_stock_2015 <- facebook_stock %>%
+  filter(year(Date) == 2015) %>%
+  select(day, Close)
+
+facebook_stock_fit <- facebook_stock_2015 %>%
+  model(Drift = RW(Close ~ drift()))
+
+facebook_stock_2016 <- facebook_stock %>%
+  filter(yearmonth(Date) == yearmonth('2016 Jan')) %>%
+  select(day, Close)
+
+facebook_forecast <- facebook_stock_fit %>%
+  forecast(new_data = facebook_stock_2016)
+
+facebook_forecast %>%
+  autoplot(facebook_stock_2015, level = NULL) +
+  autolayer(facebook_stock_2016, Close, color = 'black') +
+  labs(y = '$US',
+       title = 'Facebook daily closing stock prices',
+       subtitle = 'Jan 2015 - Jan 2016'
+       ) +
+  guides(color = guide_legend((title = 'Forecasts')))
+```
+
+Show that the forecasts are identical to extending the line drawn between the first and last observations.
+
+
+```{r}
+facebook_stock2 <- facebook_stock %>%
+  filter(year(Date) == 2015)
+
+facebook_forecast %>% 
+  autoplot(facebook_stock2, level = NULL) +
+  geom_line(data = slice(facebook_stock2, range(cumsum(!is.na(Close)))),
+                         aes(y=Close), linetype = 'dashed')
+
+```
+
+
+Try using some of the other benchmark functions to forecast the same data set. Which do you think is best? Why?
+
+```{r}
+facebook_fit2 <- facebook_stock_2015 %>%
+  model(
+    Mean = MEAN(Close),
+    Naive = NAIVE(Close),
+    Drift = NAIVE(Close ~ drift())
+  )
+# to make the forecasts for the trading days in January 2016
+facebook_jan_2016 <- facebook_stock %>%
+  filter(yearmonth(Date) == yearmonth("2016 Jan"))
+facebook_forecast2 <- facebook_fit2 %>%
+  forecast(new_data = facebook_jan_2016)
+# Plotting
+facebook_forecast2 %>%
+  autoplot(facebook_stock_2015, level = NULL) +
+  autolayer(facebook_jan_2016, Close, colour = "blue") +
+  labs(y = "$USD",
+       title = "FB dly closing stock prices",
+       subtitle = "(Jan 2015 - Jan 2016)") +
+  guides(colour = guide_legend(title = "The Forecast"))
+```
+
+
+
+The naïve method of forecasting dictates that we use the previous period to forecast for the next period. 
+
+
+
+
+5.3 Apply a seasonal naïve method to the quarterly Australian beer production data from 1992. Check if the residuals look like white noise, and plot the forecasts. The following code will help.
+
+# Extract data of interest
+recent_production <- aus_production %>%
+  filter(year(Quarter) >= 1992)
+# Define and estimate a model
+fit <- recent_production %>% model(SNAIVE(Beer))
+# Look at the residuals
+fit %>% gg_tsresiduals()
+# Look a some forecasts
+fit %>% forecast() %>% autoplot(recent_production)
+
+```{r}
+# Extract data of interest
+recent_production <- aus_production %>%
+  filter(year(Quarter) >= 1992)
+# Define and estimate a model
+fit <- recent_production %>% model(SNAIVE(Beer))
+# Look at the residuals
+fit %>% gg_tsresiduals()
+```
+
+```{r}
+head(recent_production)
+```
+
+```{r}
+fit %>% forecast() %>% autoplot(recent_production)
+
+```
+
+
+
+What do you conclude?
+
+
+White noise is an important concept in time series forecasting. If a time series is white noise, it is a sequence of random numbers and cannot be predicted. If the series of forecast errors are not white noise, it suggests improvements could be made to the predictive model.
+The residuals do appear as white noise.The seasonal naive method produces forecasts for the current availabe data. We coudld could seasonal naive forecast is valid.
+
+
+
+
+5.4 Repeat the previous exercise using the Australian Exports series from global_economy and the Bricks series from aus_production. Use whichever of NAIVE() or SNAIVE() is more appropriate in each case.
+
+
+```{r}
+recent_production <- global_economy %>%
+  filter(Country == 'Australia')
+
+
+head(recent_production)
+tail(recent_production)
+```
+
+```{r}
+fit <- recent_production %>% model(NAIVE(Exports))
+
+fit %>% gg_tsresiduals()
+```
+
+
+```{r}
+fit %>% forecast() %>% autoplot(recent_production)
+```
+
+
+```{r}
+mean(augment(fit)$.innov , na.rm = TRUE)
+```
+
+BRICKS
+
+```{r}
+
+x_bricks <- aus_production %>% 
+  select(Bricks)
+
+f_bricks <- x_bricks %>% model(SNAIVE(Bricks))
+
+f_bricks %>% gg_tsresiduals()
+
+
+
+```
+
+
+```{r}
+f_bricks %>% forecast() %>% autoplot(x_bricks)
+```
+
+In the case of bricks data, neither SNAIVE or NAIVE looks like a good candidate to model the residuals.I believe there is non-white noise. This suggests that the residuals do not look like white noise and the forecast model can possibly be bettered.
+
+
+
+5.7 For your retail time series (from Exercise 8 in Section 2.10):
+
+Create a training dataset consisting of observations before 2011 using
+
+```{r}
+set.seed(718)
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+
+myseries_train <- myseries %>%
+  filter(year(Month) < 2011)
+```
+
+Check that your data have been split appropriately by producing the following plot.
+```{r}
+autoplot(myseries, Turnover) +
+  autolayer(myseries_train, Turnover, colour = "red")
+```
+
+
+Fit a seasonal naïve model using SNAIVE() applied to your training data (myseries_train).
+```{r}
+fit <- myseries_train %>%
+  model(SNAIVE(Turnover))
+```
+
+
+
+Check the residuals.
+```{r}
+fit %>% gg_tsresiduals()
+```
+```{r}
+mean(augment(fit)$.innov , na.rm = TRUE)
+```
+
+Do the residuals appear to be uncorrelated and normally distributed?
+
+The residuals are normally distributed with a mean of 0. However, the residuals seem to be correlated. The ACF graph shows that there is significant correlation in most lag periods. Moreover, the autocorrelation changes from positive to negative at lag 10.
+
+
+
+Produce forecasts for the test data
+```{r}
+fc <- fit %>%
+  forecast(new_data = anti_join(myseries, myseries_train))
+fc %>% autoplot(myseries)
+```
+The residuals are close to being normally distributed. Perhaps there is room for error. acf plot shows that there is still a lot of patterns that are not accounted for in this simple model.
+
+Compare the accuracy of your forecasts against the actual values.
+```{r}
+fit %>% accuracy()
+fc %>% accuracy(myseries)
+```
+
+How sensitive are the accuracy measures to the amount of training data used?
+I would say accuracy measures are pretty sensitive to the amount of training data in use. By adding more data one can conclue that possibly forecast accuracy readings are affected in negative manner. 
