@@ -1,0 +1,189 @@
+---
+title: " Week 5 Data Preprocessing/Overfitting |28-Feb 6-Mar "
+author: "John Mazon"
+date: "2/20/2022"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+library(fpp2)
+library(zoo)
+library(USgas)
+library(sna)
+library(seasonal)
+library(latex2exp)
+library(stats)
+library(tsibble)
+library(tsibbledata)
+library(dplyr)
+library(feasts)
+library(tidyr)
+library(readxl)
+library(httr)
+library(forecast)
+library(fpp)
+library(lessR)
+library(PerformanceAnalytics)
+library(corrplot)
+library(VIM)
+library(kableExtra)
+```
+
+## 3.1.
+The UC Irvine Machine Learning Repository6 contains a data set related
+to glass identification. The data consist of 214 glass samples labeled as one
+of seven class categories. There are nine predictors, including the refractive
+index and percentages of eight elements: Na, Mg, Al, Si, K, Ca, Ba, and Fe.
+The data can be accessed via:
+
+```{r}
+library(mlbench)
+data(Glass)
+str(Glass)
+```
+
+From initial analysis of the data we see that we have 1 Target Variable[type] of 6 levels and 9 predictor variables
+
+
+(a) Using visualizations, explore the predictor variables to understand their
+distributions as well as the relationships between predictors.
+```{r}
+
+glass <- Glass %>% select(-Type)
+chart.Correlation(glass, bg=c("blue","red","yellow"), pch=21)
+
+```
+
+
+```{r}
+# this we be too convert to long format. Also will be creating predictor as factor
+m <- Glass %>% pivot_longer(-Type, names_to = "Predictor", values_to = "Value", values_drop_na=TRUE) %>% 
+  mutate(Predictor = as.factor(Predictor)) %>% arrange(Predictor)
+
+# here we will explore the distribution of each factor 
+m %>% 
+  ggplot(., aes(Value, fill=Predictor))+geom_histogram(bins=20)+ facet_wrap(~Predictor,scales='free') + labs(title="The Distribution of the Predictors")+theme_minimal()
+
+```
+
+We can see that of all the predictors, Si appears to have the most normal distribution In addition to having the highest level of any mineral. We can conclude that this seems rational as silicon is a fundamental element to make glass. You'll also notice RI, Na, Al, and Ca have normal distributions.
+In additions to quantity of silicon, we can also assume that the RI of glass should be an important factor. Besides the Si, I would not say these as normal distributions. In general we could say that most of the element distributions are right skewed, meaning, very small trace amounts of the element are usually present, but with notable exceptions. 
+We can say that color indicates the strength and polarity of the correlation. For example, Mg and Al have a strong negative correlation. 
+
+
+
+```{r}
+corrplot(cor(Glass[,1:9]), method='square')
+
+```
+We can see that the variables differ quite a bit. Some are more normally distributed such as Na/Al, mean while others do not look normal at all such as Ba, Fe, K.In general, the correlation table tells us the relationship between each variables.There are some strong positive relationships such as Rl and Ca, Al and Ba. Also as well as some strong negative relationships, for example Rl and Si, Rl and Al, Mg and Ba.
+
+
+
+(b) Do there appear to be any outliers in the data? Are any predictors skewed?
+
+We conclude that there are outliers in the data. K, Fe and Ba variable contains lots of zeros having their graphs highly skewed to the right.
+“K” has a very obvious outlier. “Ba” also has outliers at above 2.0 and “Fe” has an outlier above 0.5. Most of the variables including RI, NA, AI, SI, CA have peaks in the center of the distribution. They appear to be more normally distributed. Lots of outliers in variable Ri, Al, Ca, Ba, Fe. You can see that the correlation table tell us that most of the variables are not related to each other The columns Ba, Fe, and K look to be heavily skewed right. This is caused by left limit is bounded at 0 and outliers on the right side of the distribution. I would expect outliers due to impurities introduced in the glass manufacturing process.In addition, other than Si (silicon - the main ingredient in glass) most of the element distributions are right skewed, meaning, very small trace amounts of the element are normally present.
+
+
+```{r}
+m %>%
+  ggplot(aes(x = Type, y = Value, color = Predictor)) +
+  geom_jitter() +
+  ylim(0, 20) + 
+  scale_color_brewer(palette = "Set2") +
+  theme_dark()
+
+```
+
+
+(c) Are there any relevant transformations of one or more predictors that
+might improve the classification model?
+
+
+In my opinion the relevant transformation that can be considered is box cox transformation or log transformation. This might improve the classification model. Besides this, removing outliers might be the best choice for improving the classification model. Another thought is that  center and scaling is another option that might improve model the performance. transformations like a log or a Box Cox could help improve the classification model. Also removing skew is removing outliers that improves a model’s performance. Also, centering and scaling can be important for all variables with any model. You can say that checking if there are any missing values in any columns that can cause a delay or miscalculate or need to addressed by removal/imputation or other means.
+
+
+
+##  3.2. 
+The soybean data can also be found at the UC Irvine Machine Learning
+Repository. Data were collected to predict disease in 683 soybeans. The 35
+predictors are mostly categorical and include information on the environmental conditions (e.g., temperature, precipitation) and plant conditions (e.g., left
+spots, mold growth). The outcome labels consist of 19 distinct classes.
+```{r}
+data(Soybean)
+?Soybean
+```
+
+```{r}
+summary(Soybean)
+
+```
+
+
+
+(a) Investigate the frequency distributions for the categorical predictors. Are
+any of the distributions degenerate in the ways discussed earlier in this
+chapter?
+```{r}
+Soybean %>% gather() %>% ggplot(aes(value))+facet_wrap(~key, scales = "free")+geom_histogram(stat="count")
+```
+created plot which shows the distribution of data points on the categorical variables. Keep in mind it also shows the missing values exist in almost all of the variables. mycelium, sclerotia, and leaf.mild are strongly imbalanced. It might be favorable to remove these variables from the model. Note that int.discolor, resulted in both a keep and remove for each factor, given that we can keep one factor, the variable is kept unless there is another indication that is affecting the model.
+
+```{r}
+par(mfrow = c(3,3))
+for(i in 2:ncol(Soybean)) {
+  plot(Soybean[i], main = colnames(Soybean[i]))
+}
+```
+
+
+
+
+
+
+(b) Roughly 18 % of the data are missing. Are there particular predictors that
+are more likely to be missing? Is the pattern of missing data related to
+the classes?
+
+```{r}
+sorted <- order(-colSums(is.na(Soybean)))
+kable(colSums(is.na(Soybean))[sorted])
+```
+
+we can see that there are a lot of missing values in the dataset as we can see in summary and first plot. Second plot shows if there is any pattern in the missing values. It shows that germ, hail, server, seed.tmt and lodging have missing values together and thus it has pattern of missing values together.
+
+
+
+```{r}
+soybean_missing_counts <- sapply(Soybean, function(x) sum(is.na(x))) %>% 
+  sort(decreasing = TRUE) %>%
+  as.data.frame() %>%
+  rename('NA_Count' ='.') 
+
+soybean_missing_counts <- soybean_missing_counts%>%
+  mutate('Feature' = rownames(soybean_missing_counts))
+
+ggplot(soybean_missing_counts, aes(x = NA_Count, y = reorder(Feature, NA_Count))) + 
+  geom_bar(stat = 'identity', fill = 'blue') +
+  labs(title = 'Soybean Missing Counts') +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+As you can see the graphs above are very helpful in indicating the amount of missing data the Soybean data contains. From the first plot, it highlights lodging, hail, sever and seed.tmt accounts for nearly 18% each. The second plot shows the pattern of the missing data as it relates to the other variables. It shows 82% are complete, in addition to the Class and leaves variables. There are quite a few signs of missing patterns, but their overall proportion is not extreme. In addition, from the graph, the first set of variables, from hail to fruit.pods, accounts for 8% of the missing data when the other variables are complete, note this does not indicate within variable missingness. In conclusion, for some imputation methods, such as certain types of multiple imputations, having fewer missingness patterns is helpful, as it requires fitting fewer models.
+
+
+(c) Develop a strategy for handling missing data, either by eliminating
+predictors or imputation.
+KNN imputation - An effective approach to data imputing is to use a model to predict the missing values. A model is created for each feature that has missing. Imputation for completing missing values using k-Nearest Neighbors. Each sample's missing values are imputed using the mean value from n_neighbors nearest.A popular approach to missing data imputation is to use a model to predict the missing values. This requires a model to be created for each input variable that has missing values. Although any one among a range of different models can be used to predict the missing values, the k-nearest neighbor (KNN) algorithm has proven to be generally effective, often referred to as “nearest neighbor imputation.”
+
+```{r}
+Soybean2 <- Soybean[3:36] # Removed class and date 
+
+# for our knn method
+knn_method <- kNN(Soybean ,k=5)
+colSums(is.na(knn_method))
+```
+
+One option to consider is for predictors that were entirely NA for a whole class, its possible to create a dummy variable to show if the predictor was filled in or not or remove it entirely. doing this filling in may be an issue because that is likely something to do with data collection and may not keep up over time.on the other hand, for predictors that have some data within a class I would impute an average for that predictor for a given class.Many sources suggest that the wisest stratergy is to start with checking the correlation between two variables. Important note, is due to high percentage of missing values, we were not able to get correct correlation between the variables. In case there was strong correlation between two predictors, we would have removed one with high percentages of missing values. In general, predictors with missing values with more than 5% values are suggested to be dropped, as with more missing values, the predictor might not be providing correct information to the model. We used k nearest neighbours to impute the missing values in our dataset.
