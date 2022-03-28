@@ -1,0 +1,450 @@
+---
+title: "Week 8 ARIMA |21-Mar 27-Mar"
+author: "John Mazon"
+date: "3/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(forecast)
+library(fpp)
+library(lessR)
+library(fpp3)
+library(fpp2)
+library(glue)
+```
+
+
+## Week 8 ARIMA |21-Mar 27-Mar
+
+Do the exercises 9.1, 9.2, 9.3, 9.5, 9.6, 9.7, 9.8 in Hyndman.  Please submit both the Rpubs link as well as your .rmd file.
+
+1. Figure 9.32 shows the ACFs for 36 random numbers, 360 random numbers and 1,000 random numbers.
+
+A. Explain the differences among these figures. Do they all indicate that the data are white noise?
+
+I believe that the difference among the graph is the length of the time series which is smaller causing the ACF bounds to become continuosly narrower. In addition each graph indicates the data is white noise as the spikes remain within the bounds.
+```{r}
+knitr::include_graphics('D:/CUNY SPS/Spring 2022/DATA 624/9.11.JPG')
+
+```
+
+
+Figure 9.32: Left: ACF for a white noise series of 36 numbers. Middle: ACF for a white noise series of 360 numbers. Right: ACF for a white noise series of 1,000 numbers. 
+
+B. Why are the critical values at different distances from the mean of zero? Why are the autocorrelations different in each figure when they each refer to white noise?
+
+We can see that critical values are defined by the formula (±2–√T). According to the text which depends on T. we see that in the plots, bound length decreases as the length of time series increases. For all three cases the critical value is different due to length of time series.
+
+
+2. A classic example of a non-stationary series are stock prices. Plot the daily closing prices for Amazon stock (contained in gafa_stock), along with the ACF and PACF. Explain how each plot shows that the series is non-stationary and should be differenced.
+
+I feel that the autoplot graph of AZMN closing stock price shows that there are clear trends and seasonal pattern. For example, the plot is not exactly horizontal.
+
+Looking at the ACF graphs, you can see that the closing price is well beyond the ACF boundaries. Meaning that the data is not white noise. If the data is stationary, the spikes would almost completely stay within the ACF boundaries.
+
+```{r}
+gafa_stock %>%
+  filter(Symbol == 'AMZN') %>%
+  autoplot(Close) +
+  labs(title='Amazon Closing Stock Prices')
+```
+
+```{r}
+gafa_stock %>%
+  filter(Symbol == 'AMZN') %>%
+  gg_tsdisplay(Close, plot_type = 'partial')
+```
+
+```{r}
+Gfdiffffff1 <- diff(gafa_stock$Close)
+
+ggtsdisplay(Gfdiffffff1)
+```
+
+
+3. For the following series, find an appropriate Box-Cox transformation and order of differencing in order to obtain stationary data.
+
+A. Turkish GDP from global_economy.
+```{r}
+TurkishGDP <- global_economy %>% filter(Country == "Turkey")
+ggtsdisplay(TurkishGDP$GDP)
+```
+
+
+```{r}
+X_BoxCox <- BoxCox(TurkishGDP$GDP, lambda = BoxCox.lambda(TurkishGDP$GDP))
+ndiffs(X_BoxCox)
+```
+```{r}
+X <- diff(X_BoxCox)
+
+ggtsdisplay(X)
+```
+
+
+B.    Accommodation takings in the state of Tasmania from aus_accommodation.
+```{r}
+Tsm1 <- aus_accommodation %>% filter(State == "Tasmania")
+ggtsdisplay(Tsm1$Takings)
+```
+```{r}
+T_BxCx <- BoxCox(Tsm1$Takings, lambda = BoxCox.lambda(Tsm1$Takings))
+ndiffs(T_BxCx)
+
+
+Tsmdif <- diff(T_BxCx)
+
+ggtsdisplay(Tsmdif)
+```
+
+
+
+
+C.  Monthly sales from souvenirs.
+```{r}
+Sv1 <- souvenirs
+ggtsdisplay(Sv1$Sales)
+
+
+Sv_BxCx <- BoxCox(Sv1$Sales, lambda = BoxCox.lambda(Sv1$Sales))
+ndiffs(Sv_BxCx)
+
+Svdif <- diff(Sv_BxCx)
+
+ggtsdisplay(Svdif)
+```
+
+
+
+
+5. For your retail data (from Exercise 8 in Section 2.10), find the appropriate order of differencing (after transformation if necessary) to obtain stationary data.
+```{r}
+set.seed(888)
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+```
+
+```{r}
+ggtsdisplay(myseries$Turnover)
+```
+
+Given our familiarity with this series, the increasing variance with the levels, and the strong correlation, it is evident that the series is non-stationary and needs a BoxCox transformation.
+
+
+```{r}
+
+trs_series <- myseries
+trs_series$Turnover <- box_cox(myseries$Turnover, BoxCox.lambda(myseries$Turnover))
+ggtsdisplay(trs_series$Turnover)
+```
+
+
+Now we should examine the trs series kpss stat and differencing order
+
+```{r}
+unitroot_kpss(trs_series$Turnover)
+```
+
+since we not high kpss stat, then we could assume the series is NOT stationary
+
+
+```{r}
+unitroot_ndiffs(trs_series$Turnover)
+ggtsdisplay(diff(trs_series$Turnover))
+```
+
+
+
+```{r}
+unitroot_kpss(diff(trs_series$Turnover))
+```
+
+So we see after we do a 1st order differencing our series produces a kpss_stat val that is in range of acceptance for stationary series
+
+Calculating the first order differencing of a time series is useful for converting a non stationary time series to a stationary form. It is calculated as follows. The i-th data point Y_i of a time series is replaced by Y'_i = (Y_i - Y_(i-1).
+
+
+
+
+6. Simulate and plot some data from simple ARIMA models.
+
+A. Use the following R code to generate data from an AR(1) model with ϕ1=0.6 and σ2=1. The process starts with y1=0.
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+for(i in 2:100)
+  y[i] <- 0.6*y[i-1] + e[i]
+sim <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+
+B. Produce a time plot for the series. How does the plot change as you change ϕ1
+```{r}
+#ϕ=0.6, σ^2 = 1, y=0
+sim %>% autoplot(y)
+```
+It appears that an increase in the ϕ1 forms a trend and reduce randomness.
+
+```{r}
+#increase ϕ --> ϕ=1
+for(i in 2:100)
+  y[i] <- 1*y[i-1] + e[i]
+sim_h <- tsibble(idx = seq_len(100), y = y, index = idx)
+sim_h %>% autoplot(y)
+```
+
+
+```{r}
+#decrease ϕ --> ϕ=0
+for(i in 2:100)
+  y[i] <- 0*y[i-1] + e[i]
+
+sim_l <- tsibble(idx = seq_len(100), y = y, index = idx)
+sim_l %>% autoplot(y)
+```
+We can see that a reduction of ϕ appears to the reduction in magnitude.
+
+
+C. Write your own code to generate data from an MA(1) model with θ1=0.6
+and σ2=1
+```{r}
+#MA(1) model with θ = 0.6 and σ ^ 2 = 1
+
+for(i in 2:100)
+  y[i] <- 0.6*e[i-1] + e[i]
+
+sim_m1 <- tsibble(idx = seq_len(100), y = y, index = idx)
+
+#θ=0.6, σ^2 = 1
+sim_m1 %>% autoplot(y)
+```
+
+D. Produce a time plot for the series. How does the plot change as you change θ1?
+```{r}
+#decrease θ --> θ=0
+for(i in 2:100)
+  y[i] <- 0*e[i-1] + e[i]
+
+sim_m1_l <- tsibble(idx = seq_len(100), y = y, index = idx)
+sim_m1_l %>% autoplot(y)
+
+#increase θ --> θ=0.9
+for(i in 2:100)
+  y[i] <- 0.9*e[i-1] + e[i]
+
+sim_m1_h <- tsibble(idx = seq_len(100), y = y, index = idx)
+sim_m1_h %>% autoplot(y)
+```
+I think that reducing of θ results in the reduction in magnitude and increase in frequency of spikes. Also more recent observations appear to have more weight. More over, while an increase has no noticeable effect on the magnitude and the output plot more closely resembles that of our original MA(1) plot.
+
+
+E. Generate data from an ARMA(1,1) model with ϕ1=0.6
+, θ1=0.6 and σ2=1
+```{r}
+#ARMA(1,1) model with ϕ = 0.6, θ = 0.6 and σ^2 = 1 
+for(i in 2:100)
+  y[i] <- 0.6*y[i-1] + 0.6*e[i-1] + e[i] #combo AR-MA models
+
+sim_ar <- tsibble(idx = seq_len(100), y = y, index = idx)
+head(sim_ar)
+```
+
+
+f. Generate data from an AR(2) model with ϕ1=−0.8, ϕ2=0.3 and σ2=1. (Note that these parameters will give a non-stationary series.)
+
+```{r}
+#AR(2) model with ϕ1 = 0.8, ϕ2 = 0.3 and σ^2 = 1
+for(i in 3:100)
+  y[i] <- -0.8*y[i-1] + 0.3*y[i-2] + e[i] #combo AR-MA models
+
+sim_ardos <- tsibble(idx = seq_len(100), y = y, index = idx)
+head(sim_ardos)
+```
+
+
+
+g. Graph the latter two series and compare them.
+
+```{r}
+sim_ardos %>%
+    gg_tsdisplay(y, plot_type = 'partial')
+
+sim_ar %>%
+    gg_tsdisplay(y, plot_type = 'partial')
+
+
+
+```
+
+
+
+
+
+
+7. Consider aus_airpassengers, the total number of passengers (in millions) from Australian air carriers for the period 1970-2011.
+
+
+a. Use ARIMA() to find an appropriate ARIMA model. What model was selected. Check that the residuals look like white noise. Plot forecasts for the next 10 periods.
+
+AIC = 198.04 AICc = 198.32
+The ARIMA function show  ARIMA(0, 2, 1)
+```{r}
+autoplot(aus_airpassengers)
+
+
+fit <- aus_airpassengers %>%
+        model(ARIMA(Passengers))
+
+report(fit)
+```
+
+helpful to view our residuals
+```{r}
+fit %>% gg_tsresiduals()
+```
+
+this may suggest whitenoise. let see forecast now
+
+
+```{r}
+fit %>% forecast(h=10) %>% autoplot(aus_airpassengers)
+
+```
+
+
+
+
+
+
+b.Write the model in terms of the backshift operator.
+Arima(0,2,1) in terms of the backshift operator: ((1-B)^2)(1 +(theta)B)
+
+
+c.Plot forecasts from an ARIMA(0,1,0) model with drift and compare these to part a.
+
+```{r}
+fit2 <- Arima(aus_airpassengers$Passengers, order = c(0,1,0), include.drift = TRUE)
+
+fit2 %>% forecast(h=10) %>% autoplot()
+
+```
+
+When we compare to part (a) the ACF lags can be noticed more postive. Additionally AIC is also bit higher. It looks like the residuals still appear to be white noise. Our confidence interval for part (a) is slightly larger than the range for this plot.
+
+AIC = 200.31 AICc = 200.59
+
+
+```{r}
+fit2 
+checkresiduals(fit2$residuals)
+```
+
+
+d. Plot forecasts from an ARIMA(2,1,2) model with drift and compare these to parts a and c. Remove the constant and see what happens.
+
+```{r}
+fit3 <- Arima(aus_airpassengers$Passengers, order = c(2,1,2), include.drift = TRUE) 
+fit3 %>% forecast(h=10) %>% autoplot()
+fit3 
+```
+AIC = 204.46, AICc = 206.61
+
+```{r}
+checkresiduals(fit3$residuals)
+
+```
+
+Our plot with constant not involved
+THIS IS THROWING SOME SORT OF ERROR
+```{r}
+#fit4 <- Arima(aus_airpassengers$Passengers, order = c(2,1,2), include.drift = FALSE) 
+
+#fit4 %>% forecast(h=10) %>% autoplot()
+
+```
+
+
+
+e. Plot forecasts from an ARIMA(0,2,1) model with a constant. What happens?
+```{r}
+fit4 <- Arima(aus_airpassengers$Passengers, order = c(0,2,1), include.constant = TRUE) 
+fit4 %>% forecast(h=10) %>% autoplot()
+
+```
+
+
+
+
+
+
+
+8. For the United States GDP series (from global_economy):
+
+a. if necessary, find a suitable Box-Cox transformation for the data;
+
+```{r}
+us_gdp <- global_economy%>%filter(Country=="United States")
+lambda<-BoxCox.lambda((us_gdp%>% select(GDP))[[1]])
+us_gdp<-us_gdp%>% mutate(boxGDP = box_cox(GDP,lambda=lambda))
+us_gdp%>% gg_tsdisplay(boxGDP,plot_type = "partial")+labs(title=glue("the US gdp lambda:{lambda}"))
+
+
+```
+
+
+b. fit a suitable ARIMA model to the transformed data using ARIMA();
+
+```{r}
+us_gdp_model<-us_gdp%>% model(ARIMA(boxGDP))
+report(us_gdp_model)
+```
+
+
+c. try some other plausible models by experimenting with the orders chosen;
+
+```{r}
+us_gdp_model<-us_gdp%>% model(ARIMA(boxGDP~0+pdq(1,1,1)+PDQ(0,1,1)))
+report(us_gdp_model)
+
+
+
+us_gdp_model<-us_gdp%>% model(ARIMA(boxGDP~1+pdq(1,0,1)+PDQ(0,0,1)))
+report(us_gdp_model)
+```
+
+
+
+d. choose what you think is the best model and check the residual diagnostics;
+we see that an auto generated model has the lower AIC and BIC. we witness a high p - value. This is indicative that the data is white noise. Furthermore, the ACF graph show that the spikes remain within boundaries.
+
+```{r}
+us_gdp_model<-us_gdp%>% model(ARIMA(boxGDP))
+us_gdp_model[[2]][[1]]$fit %>% checkresiduals()
+```
+
+
+
+e. produce forecasts of your fitted model. Do the forecasts look reasonable?
+
+```{r}
+fit<-us_gdp_model%>%forecast(h=10)
+fit%>%autoplot(us_gdp)
+```
+
+
+
+
+
+f. compare the results with what you would obtain using ETS() (with no transformation).
+```{r}
+us_gdp_model<-us_gdp%>% model( ets=ETS(GDP))
+fit<-us_gdp_model%>%forecast(h=10)
+fit%>%autoplot(us_gdp)
+```
+
