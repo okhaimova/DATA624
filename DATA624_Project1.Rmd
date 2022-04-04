@@ -1,0 +1,539 @@
+---
+title: "DATA624_Project1"
+author: "John Mazon"
+date: "4/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(forecast)
+library(fpp)
+library(lessR)
+library(fpp3)
+library(fpp2)
+library(glue)
+library(GGally)
+library(ggx)
+library(DT)
+library(xts)
+library(base)
+```
+
+##  Project 1 Description 
+
+This project consisx of 3 parx - two required and one bonus and is worth 15% of your grade.  The project is due at 11:59 PM on Sunday Apr 11.  I will accept late submissions with a penalty until the meetup after that when we review some projecx.
+
+
+## Part A – ATM Forecast, ATM624Data.xlsx
+ 
+In part A, I want you to forecast how much cash is taken out of 4 different ATM machines for May 2010.  The data is given in a single file.  The variable ‘Cash’ is provided in hundreds of dollars, other than that it is straight forward.   I am being somewhat ambiguous on purpose to make this have a little more business feeling.  Explain and demonstrate your process, techniques used and not used, and your actual forecast.  I am giving you data via an excel file, please provide your written report on your findings, visuals, discussion and your R code via an RPubs link along with the actual.rmd file  Also please submit the forecast which you will put in an Excel readable file.
+
+
+Reading in the DATA
+```{r}
+ATMDATA <- read.csv(file = 'https://raw.githubusercontent.com/johnm1990/DATA624/main/ATM624Data(2)%20-%20ATM%20Data.csv')
+head(ATMDATA)
+
+
+RCFL <- read.csv(file = 'https://raw.githubusercontent.com/johnm1990/DATA624/main/ResidentialCustomerForecastLoad-624(2).xlsx%20-%20ResidentialCustomerForecastLoad.csv')
+head(RCFL)
+```
+ANALYZE AND INSPECT THE DATA
+
+First we start of by inspecting the data and checking for any missing/incomplete values. When values should have been reported but were not available, we end up with missing values. In real-life data, missing values occur almost automatically. We see nonresponse in surveys, technical issues during data collection or joining data from different sources. data for which we have only complete cases are rather scarce.
+
+```{r}
+ATMDATA[!complete.cases(ATMDATA),]
+
+head(ATMDATA)
+
+#fix the date - as you saw previously we need to make some adjustment to fix data
+
+ATMDATA$DATE<-as.Date(ATMDATA$DATE, origin = "1899-12-30")
+
+```
+
+Note from above that of 19 entries(rows) we see that 14 are missing. For simplicity sake these are supposed to be removed. 
+
+
+While still exploring the data we make a matrix of plox with a given data set
+
+```{r}
+
+ATM_DF <- ATMDATA %>%
+      drop_na() %>%
+      spread(ATM, Cash) %>% 
+      mutate(DATE = as.Date(DATE, origin='1899-12-30'))
+head(ATM_DF)
+
+
+ggpairs(ATMDATA)
+
+```
+
+
+
+FROM BELOW NOTE THAT ATM 1 AND ATM2 APPEAR SIMILAR IN CHARACTERSTICS. BOTH SEASONALITY AND RANGE OF CASH WITHDRAWL.
+NOTE THAT ATM3 DID NOT HAVE MUCH ACTIVITY IT APPEARS UNTIL WAY LATER DATES
+NOTE THAT ATM4 HAS A BIT SIMILAR IN CHARACTERISTICS WITH ATM1 ATM2. THERE  WAS  NOTEABLE WITHDRAWAL IN CASH >9000. THIS IN THEORY IS OUTLIER
+
+
+```{r}
+ATM_DF <- ATM_DF[1:(dim(ATM_DF)[1] - 14),]
+atm_x <- ts(ATM_DF %>% select(ATM1:ATM4), frequency=7, end = nrow(ATM_DF) - 14)
+autoplot(atm_x, facet = TRUE)
+```
+
+AFTER SEEING ABOVE STATISTICS I WILL GO AHEAD AND ONE BY ONE (INDIVIDUAL) APPROACH 
+
+
+```{r}
+ATM1_x <- ts(ATM_DF[, "ATM1"], frequency = 7)
+ATM2_x <- ts(ATM_DF[, "ATM2"] , frequency = 7)
+ATM3_x <- ts(ATM_DF[, "ATM3"], frequency = 7)
+ATM4_x <- ts(ATM_DF[, "ATM4"], frequency = 7)
+
+
+ggtsdisplay(ATM1_x , poinx = FALSE, main = "ATM WITHDRAWLS", xlab = "Day", ylab = "Amount of Cash")
+
+ggtsdisplay(ATM2_x, poinx = FALSE, main = "ATM WITHDRAWLS", xlab = "Day", ylab = "Amount of Cash")
+
+ggtsdisplay(ATM3_x, poinx = FALSE, main = "ATM WITHDRAWLS", xlab = "Day", ylab = "Amount of Cash")
+
+
+ggtsdisplay(ATM4_x, poinx = FALSE, main = "ATM WITHDRAWLS", xlab = "Day", ylab = "Amount of Cash")
+
+```
+A box plot is a highly visually effective way of viewing a clear summary of one or more sets of data. It is particularly useful for quickly summarizing and comparing different sets of results from different experiments. At a glance, a box plot allows a graphical display of the distribution of results and provides indications of symmetry within the data.
+
+```{r}
+par(mfrow=c(4,1))
+for (i in 2:5) {
+  print(summary(ATM_DF[i]))
+  boxplot(ATM_DF[i], horizontal = TRUE)
+}
+
+```
+
+# TRANSFORMATION
+
+ATM 1
+
+below note to include diff and transformation(boxcox)
+```{r}
+ATM1_LMB <- BoxCox.lambda(ATM1_x)
+ATM1_BXCX <- ATM1_x %>% BoxCox(ATM1_LMB)
+ATM1_BXCX_DIFF <- ATM1_BXCX %>% diff(lag=7)
+ggtsdisplay(ATM1_BXCX_DIFF, points = FALSE, main = "including differencing and transf. ", xlab = "DAY", ylab = "Amounts of Cash")
+```
+
+
+
+
+ATM 2
+
+```{r}
+ggtsdisplay(ATM2_x, points = FALSE, main = "ATM #2 WITHDRAW", xlab = "Day", ylab = "Amounts of Cash")
+
+```
+
+
+```{r}
+ATM2_LMB <- BoxCox.lambda(ATM2_x)
+ATM2_BXCX <- ATM2_x %>% BoxCox(ATM2_LMB)
+ATM2_BXCX_DIFF <- ATM2_BXCX %>% diff(lag=7)
+ggtsdisplay(ATM2_BXCX_DIFF, points = FALSE, main = "with transformation and differencing", xlab = "Day", ylab = "Cash Amounts")
+```
+
+
+
+ATM 3
+
+```{r}
+ggtsdisplay(ATM3_x, points = FALSE, main = "ATM #3 WITHDRAWLS", xlab = "Day", ylab = "Amounts OF CASH")
+
+```
+
+
+ATM 4
+
+Given that all cash withdrawals from ATM4 was large, we will transform below
+```{r}
+ggtsdisplay(ATM4_x, points = FALSE, main = "ATM#4 Withdrawls", xlab = "Day", ylab = "Amounts of Cash")
+
+```
+
+
+MODEL THE DATA ATM 1 and ATM2
+
+```{r}
+ATM1_LMB <- BoxCox.lambda(ATM1_x)
+ATM2_LMB <- BoxCox.lambda(ATM2_x)
+ATM1_ARM <- auto.arima(ATM1_x)
+ATM2_ARM <- auto.arima(ATM2_x)
+
+
+# FOR ATM3 apparently no trend or seasonality. Lets use the mean and naive model.
+ATM3_MN <- meanf(ATM3_x, h = 14)
+ATM3_NV <- naive(ATM3_x, h = 14)
+
+
+
+# FOR ATM4 i will be using for first time auto arima
+
+ATM4_LMB <- BoxCox.lambda(ATM4_x)
+ATM4_ARM <- auto.arima(ATM4_x)
+
+
+```
+
+LETS CHECK RESIDUALS
+
+```{r}
+checkresiduals(ATM1_ARM)
+checkresiduals(ATM2_ARM)
+checkresiduals(ATM3_MN)
+checkresiduals(ATM4_ARM)
+```
+
+
+
+LETS CHECK SUMMARIES
+```{r}
+summary(ATM1_ARM)
+summary(ATM2_ARM)
+
+autoplot(ATM3_x) +
+  autolayer(ATM3_NV, series = "Naive", PI = FALSE) +
+  autolayer(ATM3_MN, series = "Average", PI = FALSE)
+
+
+summary(ATM4_ARM)
+```
+
+LETS FIT THE MODEL
+ATM1 FORECASTING
+
+```{r}
+ATM1_FT<-Arima(ATM1_x, order = c(1, 0, 0), seasonal = c(2, 1, 0), lambda = ATM1_LMB)
+ATM1_FCST<-forecast(ATM1_FT, 31)  
+
+autoplot(ATM1_x) +
+  autolayer(ATM1_FCST, series = "ATM 1 ARIMA FORECAST", PI = FALSE) 
+
+```
+
+ATM2 FORECASTING
+
+```{r}
+ATM2_FT<-Arima(ATM2_x, order = c(1, 0, 0), seasonal = c(2, 1, 0), lambda = ATM2_LMB)
+ATM2_FCST<-forecast(ATM2_FT, 31) 
+
+autoplot(ATM2_x) +
+  autolayer(ATM2_FCST, series = "ATM 2 FORECAST ARIMA ", PI = FALSE) 
+
+```
+
+ATM3 FORECASTING
+
+
+
+```{r}
+ATM3_NV <- naive(ATM3_x, h = 31)
+autoplot(ATM3_x) +
+  autolayer(ATM3_NV, series = "ATM3 NAIVE FRCSTING ", PI = FALSE) 
+
+```
+
+ATM4 FORECASTING
+
+
+```{r}
+ATM4_FT<-Arima(ATM4_x, order = c(0, 0, 0), lambda = ATM4_LMB)
+ATM4_FCST<-forecast(ATM4_FT, 31)  
+
+autoplot(ATM4_x) +
+  autolayer(ATM4_FCST, series = "ATM4 AUT ARM FORECAST ", PI = FALSE)
+```
+
+
+
+CONCLUSION
+we will export using below the forecast rslts for all ATMS
+```{r}
+names(ATM_DF)[-1]
+max(ATM_DF$DATE) 
+
+
+RSLTS <- data_frame(DATE = rep(max(ATM_DF$DATE) + 1:31, 4), ATM = rep(names(ATM_DF)[-1], each = 31), Cash = c(ATM1_FCST$mean, ATM2_FCST$mean,ATM3_NV$mean, ATM4_FCST$mean)) 
+
+head(RSLTS)
+
+
+write.csv(RSLTS,"D:/CUNY SPS/Spring 2022/DATA 624/rslts.csv", row.names = FALSE)
+
+```
+
+
+
+## Part B – Forecasting Power, ResidentialCustomerForecastLoad-624.xlsx
+
+Part B consisx of a simple dataset of residential power usage for January 1998 until December 2013.  Your assignment is to model these data and a monthly forecast for 2014.  The data is given in a single file.  The variable ‘KWH’ is power consumption in Kilowatt hours, the rest is straight forward.    Add this to your existing files above. 
+
+```{r}
+head(RCFL)
+
+summary(RCFL)
+```
+
+LOCATING THE MISSING VALUES
+```{r}
+which(is.na(RCFL), arr.ind=TRUE)
+
+# aka 861 - 2008-Sep
+```
+
+
+
+```{r}
+slice(RCFL,c(127:132))
+
+#HERE YOU CAN WITNESS THE MISSING (NA) DATA 
+```
+ONCE AGAIN AS YOU CAN SEE IT APPEARS MISSING DATA FOR 2008 SEPT
+
+EXPLORING FURTHER THE DATA
+
+```{r}
+RCFL <- RCFL %>% rename(Date = 'YYYY.MMM')
+RCFL_data <- RCFL %>% select(-CaseSequence) 
+RCFL_data <- RCFL_data %>%  mutate(Date = as.Date(paste0('01-', Date), '%d-%Y-%b'))
+ 
+ggplot(RCFL_data, aes(Date, KWH)) +geom_line() + ggtitle('POWER USAGE OF RESIDENTIAL')
+```
+
+
+AS YOU CAN SEE FROM ABOVE CHART AND BELOW STAT PULL, VERY LOW DECLINE OF USAGE NEAR 2010
+```{r}
+min(RCFL_data$KWH,na.rm = TRUE)
+
+```
+
+```{r}
+RCFL_2 <-ts(RCFL[, "KWH"], start = c(1998, 1), frequency = 12)
+ggseasonplot(RCFL_2)+ggtitle('USAGE BY YEAR FOR RESIDENTIAL POWER')
+
+```
+
+BEING THAT THE DATE APPEARS SEASONAL, I THNINK WE COULD USE MEAN VALUE OF THE MONTHS JUNE / NOV IN ORDER TO HANDLE MISSING
+```{r}
+RCFL_data<- RCFL_data[-c(129,151),]
+
+
+#Get average by month
+RCFL_data$Month <- months(RCFL_data$Date)
+aggregate(KWH ~ Month, RCFL_data, mean)
+```
+
+
+```{r}
+RCFL$KWH[is.na(RCFL$KWH)] = median(RCFL$KWH, na.rm=TRUE)
+
+summary(RCFL)
+```
+
+```{r}
+RCFL_ts <- ts(RCFL$KWH, start=c(1998,1), frequency = 12)
+RCFL_ts
+```
+
+
+```{r}
+# Before Transformation
+ggtsdisplay(RCFL_ts, main="Monthly Power Consumption before transform")
+
+```
+
+BOXCOX TRANSFORM
+
+```{r}
+RCFLS_BXCX <- RCFL_ts %>% BoxCox(lambda= 'auto')
+ggtsdisplay(RCFLS_BXCX, main='MONTHLY POWER CONSUMER BXCX')
+
+```
+
+
+
+
+
+INVESTIGATE THE DATA CLOSELY
+
+
+```{r}
+ggseasonplot(RCFLS_BXCX)
+
+summary(RCFLS_BXCX)
+```
+
+HELPFUL STATS TO EXPLORE SEASONALITY OR PATTERNS
+```{r}
+ggsubseriesplot(RCFLS_BXCX) 
+
+
+ggAcf(RCFLS_BXCX)
+```
+
+
+LETS UTILIZE A BOX TEST TO TAKE A CLOSER LOOK
+
+```{r}
+Box.test(RCFLS_BXCX, type = c("Ljung-Box"))
+
+summary(RCFLS_BXCX)
+
+
+boxplot(RCFLS_BXCX~cycle(RCFLS_BXCX))
+
+```
+
+DIFFERENCING
+
+```{r}
+
+print(paste0("Suggested # of diff: ", ndiffs(RCFLS_BXCX)))
+
+print(paste0("DIFF REQUIRED (SEASIONAL): ", ndiffs(diff(RCFLS_BXCX, lag=12))))
+
+
+RCFL_PWR_DIFF <- RCFLS_BXCX %>% diff(lag = 12)
+ggtsdisplay(RCFL_PWR_DIFF, main= "Monthly power consumption BXCX AND DIFF")
+```    
+
+
+
+LETS SEE A GRAPHIC FOR RES POWER USAGE BY YEAR
+```{r}
+ggseasonplot(RCFL_PWR_DIFF,polar = TRUE)+ggtitle('Residential Power Usage by Year')
+
+plot(RCFL_PWR_DIFF)
+```
+
+
+#LET SEE A MOVING AVG
+
+```{r}
+autoplot(RCFL_PWR_DIFF, series="Data")+
+  autolayer(ma(RCFL_PWR_DIFF, 12), series = "12 MTH Moving Avg")+ ggtitle("2014 MVING AVG")
+
+```
+
+
+## FORECAST MODELING
+
+# 1 STL - ANN NO DP
+
+```{r}
+#stlf - etsmodel
+RCFLS_STL <- stlf(RCFL_PWR_DIFF, damped=FALSE, s.window = "periodic", robust=TRUE, h = 12)
+
+# forecast plot
+autoplot(RCFLS_STL) + autolayer(fitted(RCFLS_STL))
+```
+
+
+#2 STL - DP AADN
+
+```{r}
+#stlf - etsmodel estimation --- M, Ad, N is chosen.
+RCFL_STL_DP <- stlf(RCFL_PWR_DIFF, damped=TRUE, s.window = "periodic", robust=TRUE, h = 12)
+
+# forecast plot
+autoplot(RCFL_STL_DP) + autolayer(fitted(RCFL_STL_DP))
+```
+
+
+
+
+
+#3 - ARIMA
+```{r}
+# auto.arima
+arima_model <- auto.arima(RCFL_PWR_DIFF)
+
+# forecast values
+arima_model <- forecast(arima_model, h=20)
+
+# forecast plot
+autoplot(arima_model) + autolayer(fitted(arima_model))
+```
+
+
+
+
+#4 - ETS MNM
+
+```{r}
+RCFL_ETS<- ets(RCFL_PWR_DIFF)
+
+# forecast plot
+autoplot(forecast(RCFL_ETS
+                , h=12)) + autolayer(fitted(RCFL_ETS
+                                                    ))
+
+```
+
+
+
+
+# 5 EXP SMOOTH
+
+```{r}
+RCFL_FCST_PWR_S <- ses(RCFL_PWR_DIFF, h=12)
+autoplot(RCFL_FCST_PWR_S)+
+  autolayer(fitted(RCFL_FCST_PWR_S), series="Fitted")
+
+#RCFL_FCST_PWR_S
+```
+
+
+
+# COMPARISON OF THE MODELS
+
+```{r}
+accuracy(RCFLS_STL)
+checkresiduals(RCFLS_STL)
+summary(RCFLS_STL)
+
+accuracy(RCFL_STL_DP)
+checkresiduals(RCFL_STL_DP)
+summary(RCFL_STL_DP)
+
+accuracy(arima_model)
+checkresiduals(arima_model)
+summary(arima_model)
+
+
+accuracy(RCFL_ETS)
+checkresiduals(RCFL_ETS)
+summary(RCFL_ETS)
+
+accuracy(RCFL_FCST_PWR_S)
+checkresiduals(RCFL_FCST_PWR_S)
+summary(RCFL_FCST_PWR_S)
+```
+
+
+
+If you look at ARIMA it based AIC it appears with best result. BIC dropped to 540. AIC it dropped to 524. RMSE has also dropped from 1.347 to 0.966. i think i'll take ARIMA model on this one. I'll go ahead and predict the values in csv as I am comfortable with the results of ARIMA.
+
+```{r}
+
+rslts_2 <- forecast(arima_model, h=12)
+rslts_fin <- data.frame(rslts_2)
+
+write.csv(rslts_fin,"D:/CUNY SPS/Spring 2022/DATA 624/rslts_rcfl.csv", row.names = FALSE)
+```
