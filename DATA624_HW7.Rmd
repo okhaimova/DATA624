@@ -1,0 +1,237 @@
+---
+title: "DATA624_HW7"
+author: "John Mazon"
+date: "4/10/2022"
+output: html_document
+---
+#install.packages("RANN")
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(forecast)
+library(fpp)
+library(fpp3)
+library(fpp2)
+library(glue)
+library(caret)
+library(caTools)
+library(pls)
+library(Amelia)
+library(RANN)
+```
+
+## R Markdown
+
+6.2. Developing a model to predict permeability (see Sect. 1.4) could save sig-
+nificant resources for a pharmaceutical company, while at the same time more
+rapidly identifying molecules that have a sufficient permeability to become a
+drug:
+(a) Start R and use these commands to load the data:
+
+```{r}
+library(AppliedPredictiveModeling)
+data(permeability)
+head(permeability)
+```
+
+The matrix fingerprints contains the 1,107 binary molecular predic-
+tors for the 165 compounds, while permeability contains permeability
+response.
+(b) The fingerprint predictors indicate the presence or absence of substruc-
+tures of a molecule and are often sparse meaning that relatively few of the
+molecules contain each substructure. Filter out the predictors that have
+low frequencies using the nearZeroVar function from the caret package.
+How many predictors are left for modeling?
+```{r}
+colus <- nearZeroVar(fingerprints)
+
+dataframe1 <- fingerprints[,-colus]
+
+dim(dataframe1)
+```
+
+
+(c) Split the data into a training and a test set, pre-process the data, and
+tune a PLS model. How many latent variables are optimal and what is
+the corresponding resampled estimate of R2?
+```{r}
+set.seed(888)
+transformed <- preProcess(dataframe1,
+    method = c('center', 'scale'))
+
+dataframe1 <- predict(transformed, dataframe1)
+
+ytransf <- preProcess(permeability,
+    method = c('center', 'scale'))
+
+y <- predict(ytransf, permeability)
+
+sample <- sample.split(permeability, SplitRatio = 0.75)
+X_train = subset(dataframe1, sample == TRUE)
+X_test = subset(dataframe1, sample == FALSE)
+
+X_train_i <- rownames(X_train)
+X_test_i <- rownames(X_test)
+
+
+y_train <- permeability[X_train_i,]
+y_test <- permeability[X_test_i,]
+
+
+pFIT <- train(X_train, y_train,
+            method = 'pls',
+            tuneLength = 100
+            )
+
+plot(pFIT)
+head(pFIT)
+
+```
+
+
+
+(d) Predict the response for the test set. What is the test set estimate of R2?
+```{r}
+lmPredict <- predict(pFIT, X_test)
+
+lmpredVal1 <- data.frame(obs = y_test, pred = lmPredict)
+defaultSummary(lmpredVal1)
+
+```
+
+(e) Try building other models discussed in this chapter. Do any have better
+predictive performance?
+```{r}
+options(warn = - 1)
+eNGrid <- expand.grid(.lambda = c(0,0.01,0.1),
+            .fraction = seq(0.05,1,length = 20))
+
+set.seed(999)
+eTune <- train(X_train, y_train,
+                  method = 'enet',
+                  tuneGrid = eNGrid
+                  )
+```
+
+```{r}
+lmPRED2 <- predict(eTune, X_test)
+
+lmVal2 <- data.frame(obs = y_test, pred = lmPRED2)
+defaultSummary(lmVal2)
+```
+
+
+
+Yes, the Elastic Net model performed better in predicting the values of the test data set.
+
+(f) Would you recommend any of your models to replace the permeability
+laboratory experiment?
+I would not think so. This is because R2 values are relatively low.
+
+
+6.3. A chemical manufacturing process for a pharmaceutical product was
+discussed in Sect. 1.4. In this problem, the objective is to understand the re-
+lationship between biological measurements of the raw materials (predictors),
+6.5 Computing 139
+measurements of the manufacturing process (predictors), and the response of
+product yield. Biological predictors cannot be changed but can be used to
+assess the quality of the raw material before processing. On the other hand,
+manufacturing process predictors can be changed in the manufacturing pro-
+cess. Improving product yield by 1 % will boost revenue by approximately
+one hundred thousand dollars per batch:
+(a) Start R and use these commands to load the data:
+
+```{r}
+library(AppliedPredictiveModeling)
+data(ChemicalManufacturingProcess)
+head(ChemicalManufacturingProcess)
+```
+
+The matrix processPredictors contains the 57 predictors (12 describing
+the input biological material and 45 describing the process predictors)
+for the 176 manufacturing runs. yield contains the percent yield for each
+run.
+
+
+(b) A small percentage of cells in the predictor set contain missing values. Use
+an imputation function to fill in these missing values (e.g., see Sect. 3.8).
+```{r}
+missmap(ChemicalManufacturingProcess)
+
+#using knn imputation
+(CHEM_knn_impute <- preProcess(ChemicalManufacturingProcess, method=c('knnImpute')))
+
+CHEM_dataframe <- predict(CHEM_knn_impute, ChemicalManufacturingProcess)
+summary(CHEM_dataframe)
+
+
+
+```
+
+
+
+
+(c) Split the data into a training and a test set, pre-process the data, and
+tune a model of your choice from this chapter. What is the optimal value
+of the performance metric?
+```{r}
+dim(CHEM_dataframe)
+
+CHEM_dataframe2 <- CHEM_dataframe[, -nearZeroVar(CHEM_dataframe)]
+dim(CHEM_dataframe2)
+```
+```{r}
+set.seed(555)
+
+select_train <- createDataPartition(CHEM_dataframe2$Yield, times = 1, p = .80, list = FALSE)
+
+train_x2 <- CHEM_dataframe2[select_train, ][, -c(1)] 
+test_x2 <- CHEM_dataframe2[-select_train, ][, -c(1)] 
+train_y2 <- CHEM_dataframe2[select_train, ]$Yield
+test_y2 <- CHEM_dataframe2[-select_train, ]$Yield
+
+(P_fit2 <- train(x = train_x2, y = train_y2,
+                method = "pls",
+                metric = "Rsquared",
+                tuneLength = 25, 
+                trControl = trainControl(method = "cv", number=10), 
+                preProcess = c('center', 'scale')
+          ))
+```
+```{r}
+plot(P_fit2)
+
+```
+
+
+
+(d) Predict the response for the test set. What is the value of the performance
+metric and how does this compare with the resampled performance metric
+on the training set?
+```{r}
+P_predict2 <- predict(P_fit2, newdata=test_x2)
+(postResample(pred=P_predict2, obs=test_y2))
+```
+
+(e) Which predictors are most important in the model you have trained? Do
+either the biological or process predictors dominate the list?
+```{r}
+plot(varImp(P_fit2, scale = FALSE), top=20, scales = list(y = list(cex = 0.8)))
+```
+
+(f) Explore the relationships between each of the top predictors and the re-
+sponse. How could this information be helpful in improving yield in future
+runs of the manufacturing process?
+
+As we can view, that the top preds are ManufacturingProcess36, ManufacturingProcess32 and ManufacturingProcess13.
+
+ You can see that ManufacturingProcess32 and ManufacturingProcess36 are negatively correlated. ManufacturingProcess32 has strong positive correlation with Yield. If we continue on this increase the yield. ManufacturingPocess36 and ManufacturingProcess13 are moderately correlated with Yield.
+
+
+```{r}
+correlation <- cor(select(CHEM_dataframe2, 'ManufacturingProcess32','ManufacturingProcess36','ManufacturingProcess13','Yield'))
+corrplot::corrplot(correlation, method='square', type="upper")
+
+```
