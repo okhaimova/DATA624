@@ -1,0 +1,299 @@
+---
+title: "DATA624_HW9"
+author: "John Mazon"
+date: "5/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+library(forecast)
+library(fpp)
+library(fpp3)
+library(fpp2)
+library(glue)
+library(caret)
+library(caTools)
+library(pls)
+library(Amelia)
+library(RANN)
+library(mlbench)
+library(caret)
+```
+
+
+Do problems 8.1, 8.2, 8.3, and 8.7 in Kuhn and Johnson.  Please submit the Rpubs link along with the .rmd file.
+
+##8.1. Recreate the my_simu data from Exercise 7.2:
+
+
+```{r}
+library(mlbench)
+set.seed(200)
+my_simu <- mlbench.friedman1(200, sd = 1)
+my_simu <- cbind(my_simu$x, my_simu$y)
+my_simu <- as.data.frame(my_simu)
+colnames(my_simu)[ncol(my_simu)] <- "y"
+
+```
+
+(a) Fit a random forest model to all of the predictors, then estimate the
+variable importance scores:
+
+
+```{r}
+library(randomForest)
+library(caret)
+model1 <- randomForest(y ~ ., data = my_simu,
+importance = TRUE,
+ntree = 1000)
+rfImp1 <- varImp(model1, scale = FALSE)
+
+```
+
+Did the random forest model significantly use the uninformative predic-
+tors (V6 – V10)?
+If looking at the below graph, shows that the model did not use V6-V10 variables significantly.
+```{r}
+rfImp1 %>% 
+  mutate (var = rownames(rfImp1)) %>%
+  ggplot(aes(Overall, reorder(var, Overall, sum), var)) + 
+  geom_col(fill = 'blue') + 
+  labs(title = 'Variable Importance' , y = 'Variable')
+
+```
+
+
+(b) Now add an additional predictor that is highly correlated with one of the
+informative predictors. For example:
+
+```{r}
+my_simu$duplicate1 <- my_simu$V1 + rnorm(200) * .1
+cor(my_simu$duplicate1, my_simu$V1)
+
+```
+
+Fit another random forest model to these data. Did the importance score
+for V1 change? What happens when you add another predictor that is
+also highly correlated with V1?
+As we observe below that the V1 importance has dropped to the fourth position. Now see it is next to the duplicate.
+
+```{r}
+model2 <- randomForest(y ~ ., data = my_simu,
+                       importance = TRUE,
+                       ntree = 1000)
+
+rfImp2 <- varImp(model2, scale = FALSE)
+
+rfImp2 %>% 
+  mutate (var = rownames(rfImp2)) %>%
+  ggplot(aes(Overall, reorder(var, Overall, sum), var)) + 
+  geom_col(fill = 'blue') + 
+  labs(title = 'Variable Importance' , y = 'Variable')
+
+```
+
+
+(c) Use the cforest function in the party package to fit a random forest model
+using conditional inference trees. The party package function varimp can
+calculate predictor importance. The conditional argument of that func-
+tion toggles between the traditional importance measure and the modified
+version described in Strobl et al. (2007). Do these importances show the
+same pattern as the traditional random forest model?
+
+```{r}
+library(partykit)
+model3 <- cforest(y ~ ., data = my_simu)
+
+rfImp3 <- varimp(model3, conditional = TRUE) %>% as.data.frame()
+
+rfImp3 %>% 
+  rename(Overall = '.') %>%
+  mutate (var = rownames(rfImp3)) %>%
+  ggplot(aes(Overall, reorder(var, Overall, sum), var)) + 
+  geom_col(fill = 'blue') + 
+  labs(title = 'Variable Importance' , y = 'Variable')
+
+```
+
+
+(d) Repeat this process with different tree models, such as boosted trees and
+Cubist. Does the same pattern occur?
+As you can see below, the model continues to not utilize V6-V10. Moreover, the variables importance that are used have equal values.
+```{r}
+library(Cubist)
+model4 <- cubist(my_simu[, colnames(my_simu)[colnames(my_simu) != 'y']], 
+                 my_simu$y)
+
+rfImp4 <- varImp(model4, scale = FALSE)
+
+rfImp4 %>% 
+  mutate (var = rownames(rfImp4)) %>%
+  ggplot(aes(Overall, reorder(var, Overall, sum), var)) + 
+  geom_col(fill = 'blue') + 
+  labs(title = 'Variable Importance' , y = 'Variable')
+```
+
+
+## 8.2. 
+Use a simulation to show tree bias with different granularities.
+```{r}
+set.seed(88)
+V1 <- runif(500, 2,500)
+V2 <- rnorm(500, 2,10)
+V3 <- rnorm(500, 1,1000)
+y <- V2 + V3
+df <- data.frame(V1, V2, V3, y)
+test_model <- cforest(y ~ ., data = df, ntree = 10)
+test_model_imp <- varimp(test_model, conditional = FALSE)
+barplot(sort(test_model_imp),horiz = TRUE, main = 'Un-Conditional', col = rainbow(5))
+```
+as you can see above when using Model  Random Forest the most significant variable is V3. We know this basing on utilizing function of y <- V2 + V3
+
+
+## 8.3. 
+In stochastic gradient boosting the bagging fraction and learning rate
+will govern the construction of the trees as they are guided by the gradi-
+ent. Although the optimal values of these parameters should be obtained
+through the tuning process, it is helpful to understand how the magnitudes
+of these parameters affect magnitudes of variable importance. Figure 8.24
+provides the variable importance plots for boosting using two extreme values
+for the bagging fraction (0.1 and 0.9) and the learning rate (0.1 and 0.9) for
+the solubility data. The left-hand plot has both parameters set to 0.1, and
+the right-hand plot has both set to 0.9:
+
+(a) Why does the model on the right focus its importance on just the first few
+of predictors, whereas the model on the left spreads importance across
+more predictors?
+As you can see the right model, focuses on a few variables since it has higher learning rate along with a higher bagging rate. You'll see bigger size of the data is used. In turn increasing the correlation at each iteration. Thus only a few of the variables have high importance.
+
+(b) Which model do you think would be more predictive of other samples?
+Due to  overfit as it considers fewer variables, the model with larger learning and bagging will most likely. The left model has a higher chance of being more predictive of other samples.
+
+(c) How would increasing interaction depth affect the slope of predictor im-
+portance for either model in Fig. 8.24?
+Since the interaction depth increases, more predictors are included. The RMSE error will lower and the steeper the slop of importance of predictors.
+
+# 8.7. 
+Refer to Exercises 6.3 and 7.5 which describe a chemical manufacturing
+process. Use the same data imputation, data splitting, and pre-processing
+steps as before and train several tree-based models:
+```{r}
+library(AppliedPredictiveModeling)
+data(ChemicalManufacturingProcess)
+# Impute the missing values using bagImpute
+cmp_impute <- preProcess(ChemicalManufacturingProcess[,-c(1)], method=c('bagImpute'))
+# Replace
+cmp <- predict(cmp_impute, ChemicalManufacturingProcess[,-c(1)])
+# Splitting the data into training and test datasets
+set.seed(480)
+train_r <- createDataPartition(ChemicalManufacturingProcess$Yield, p=0.8, list=FALSE)
+X_train <- cmp[train_r,]
+y_train <- ChemicalManufacturingProcess$Yield[train_r]
+X_test <- cmp[-train_r,]
+y_test <- ChemicalManufacturingProcess$Yield[-train_r]
+
+```
+Gradien Boost
+```{r}
+set.seed(44)
+grid <- expand.grid(n.trees=c(50, 100, 150, 200), 
+                    interaction.depth=c(1, 5, 10, 15), 
+                    shrinkage=c(0.01, 0.1, 0.5), 
+                    n.minobsinnode=c(5, 10, 15))
+model_gbm1 <- train(x = X_train,y = y_train, method = 'gbm',tuneGrid = grid, verbose = FALSE)
+
+model_gbm1$bestTune
+
+```
+
+
+RANDOM FOREST
+```{r}
+set.seed(77)
+model_rf3<- train(X_train, y_train, method='rf', tuneLength = 10)
+model_rf3
+
+```
+
+
+SINGLE TREE
+```{r}
+library(rpart)
+set.seed(66)
+model_rpart <- train(x= X_train, y= y_train, method="rpart", tuneLength=10, control= rpart.control(maxdepth=2))
+model_rpart
+```
+
+
+
+
+(a) Which tree-based regression model gives the optimal resampling and test
+set performance?
+From below you could see the best model looks like Gradient Boosting. This is because the RMSE value seems better than those from the other models. 
+```{r}
+summary(resamples(list(Single_True = model_rpart, Random_Forest = model_rf3, 
+                       Gradient_Boosting=model_gbm1)))
+
+```
+
+```{r}
+#Function for test data
+test_performance <- function(models, testData, testTarget) {
+  method <- c()
+  res <- data.frame()
+  for(model in models){
+    method <- c(method, model$method)
+    pred <- predict(model, newdata=testData)
+    res <- rbind(res, t(postResample(pred=pred, obs=testTarget)))
+  }
+  row.names(res) <- method
+  return(res)
+}
+#List te models
+models <- list(model_rpart, model_rf3, model_gbm1)
+#Run the function
+performance <- test_performance(models, X_test, y_test)
+performance
+
+```
+
+
+(b) Which predictors are most important in the optimal tree-based regression
+model? Do either the biological or process variables dominate the list?
+How do the top 10 important predictors compare to the top 10 predictors
+from the optimal linear and nonlinear models?
+You'll see from below that Gradient Boosting and SVM have both Bio and Manu predictors. On the other hand Partial least squares linear model is dominated by manufacturing predictors. Manufacturing Process32 seems to be an important variable in all three models.
+
+```{r}
+library(gbm)
+model_pls <- train(x = X_train,y = y_train, method='pls', metric='RMSE',
+                   tuneLength=20, trControl = trainControl(method='cv'))
+(pls_imp = varImp(model_pls))
+
+set.seed(222)
+svm_model <- train(x = X_train,y = y_train,
+                        method = "svmRadial",
+                        tuneLength=10,
+                        preProc = c("center", "scale"))
+(svm_imp = varImp(svm_model))
+
+
+p1<-plot(svm_imp, top=10, main='SVM')
+p2<-plot(pls_imp, top=10, main='PLS')
+gbm_imp<-varImp(model_gbm1)
+p3<-plot(gbm_imp, top=10, main='GBM')
+gridExtra::grid.arrange(p1, p2,p3,  ncol = 3)
+```
+
+(c) Plot the optimal single tree with the distribution of yield in the terminal
+nodes. Does this view of the data provide additional knowledge about the
+biological or process predictors and their relationship with yield?
+
+```{r}
+
+model_rpart$finalModel
+```
