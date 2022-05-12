@@ -1,0 +1,118 @@
+---
+title: "DATA624_Week13"
+author: "John Mazon"
+date: "5/11/2022"
+output: html_document
+---
+#install.packages("arules")
+```{r setup, include=FALSE}
+
+if (!require("arules")) install.packages("arules")
+if (!require("arulesViz")) install.packages("arulesViz")
+
+
+library(dplyr)
+library(tidyr)
+
+library(arules)
+library(arulesViz)
+library(kableExtra)
+
+```
+
+## Optional Assignment on Market Basket -  Week 13 Market Basket and Clusters
+
+
+# Excercise
+
+Imagine 10000 receipts sitting on your table. Each receipt represents a transaction with items that were purchased. The receipt is a representation of stuff that went into a customer’s basket - and therefore ‘Market Basket Analysis’.
+That is exactly what the Groceries Data Set contains: a collection of receipts with each line representing 1 receipt and the items purchased. Each line is called a transaction and each column in a row represents an item.  The data set is attached.
+Your assignment is to use R to mine the data for association rules. You should report support, confidence and lift and your top 10 rules by lift. 
+
+
+```{r}
+df <- read.transactions('https://raw.githubusercontent.com/johnm1990/DATA624/main/GroceryDataSet.csv', format = 'basket', header = FALSE, sep =',')
+
+summary(df)
+```
+
+## Viewing the freqs of items
+
+```{r}
+itemFrequencyPlot(df, type = 'relative', topN = 20, horiz = TRUE)
+
+
+
+#second view
+
+itemFrequencyPlot(df, topN=20, type="relative")
+```
+
+
+#Market Basket Analysis
+
+```{r}
+
+rules <- apriori(df, parameter=list(supp=0.001, conf=0.5), control=list(verbose=FALSE)) %>%
+  DATAFRAME() 
+  
+rules %>%
+  arrange(desc(lift)) %>%
+  top_n(10) %>%
+  kable() %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>% scroll_box(width="100%",height="400px")
+
+```
+
+
+
+#summary of rules 
+```{r}
+
+summary(rules)
+```
+
+
+
+
+# BY LIFT / method graph
+
+```{r}
+
+
+head(rules, n = 10, by = 'lift') %>%
+  plot(method = 'graph')
+
+```
+# Added clustering
+
+
+```{r}
+
+df <- df[,itemFrequency(df) >= 0.05]
+
+cluster <- dissimilarity(df, which = 'items')
+
+plot(hclust(cluster, method = 'ward.D2'))
+
+```
+
+
+
+# diffrent graph visual
+
+```{r}
+
+plot(rules, method="graph", layout=igraph::in_circle())
+```
+
+
+# Conclusion
+
+When we view our frequency plot you can see that it demonstrates data which the 5 most purchased items in order of frequency are whole milk, other vegetables, rolls/buns, soda, and yogurt. 
+When we use the apriori() function it returns 410 association rules for these data. Afterwards using the is.redundant() function, this  reduces the number of rules from 410 to 392. 
+To avoid long rules, the apriori() function is run with maxlen=3 specified. 
+This will reduce the number of rules from 410 to 29. When inspecting the top ten rules sorted by confidence shows that most of the associations are with whole milk and other vegetables which are the two most purchased items. This relationship can also be seen in the plot of the network where most arrows are pointing toward whole milk and other vegetables.
+
+
+
+
