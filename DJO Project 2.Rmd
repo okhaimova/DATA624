@@ -1,0 +1,473 @@
+---
+title: "DATA624 Project 2"
+author: 
+  - Dominika Markowska-Desvallons
+  - John Mazon
+  - Orli Khaimova 
+date: "5/15/2022"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message = FALSE, warning = FALSE, echo = FALSE}
+library(caret)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(psych)
+library(mice)
+library(randomForest)
+library(corrplot)
+library(class)
+library(rpart)
+library(AppliedPredictiveModeling)
+library(Cubist)
+library(kernlab)
+library(readxl)
+library(openxlsx)
+library(earth)
+library(elasticnet)
+library(glmnet)
+library(gbm)
+library(Cubist)
+library(AppliedPredictiveModeling)
+library(ipred)
+library(partykit)
+library(party)
+```
+
+## Project #2 (Team) Assignment
+
+This is role playing.  I am your new boss.  I am in charge of production at ABC Beverage and you are a team of data scientists reporting to me.  My leadership has told me that new regulations are requiring us to understand our manufacturing process, the predictive factors and be able to report to them our predictive model of PH.
+
+Please use the historical data set I am providing.  Build and report the factors in BOTH a technical and non-technical report.  I like to use Word and Excel.  Please provide your non-technical report in a  business friendly readable document and your predictions in an Excel readable format.   The technical report should show clearly the models you tested and how you selected your final approach.
+
+Please submit both Rpubs links and .rmd files or other readable formats for technical and non-technical reports.  Also submit the excel file showing the prediction of your models for pH.
+
+### Loading the Data
+
+We uploaded the provided data files into Github, so that it will be easier to access. We also
+replaced any blank values with `NA` values, in order to impute any missing values later.
+
+```{r}
+df_StudentData <- read.csv('https://raw.githubusercontent.com/johnm1990/DATA624/main/StudentData.csv',
+                           na.strings = c("", NA))
+df_EvalData <- read.csv('https://raw.githubusercontent.com/johnm1990/DATA624/main/StudentEvaluation.csv',
+                           na.strings = c("", NA))
+```
+## Data Exploration
+
+### Summary
+
+The training data has 33 variables with 2,571 observations. One variable, `Brand.Code` is
+categorical, while the others are integers and numerical. `PH` is centered about 8.5. SOme variables
+seem to be skewed and it would be best to center and scale later on. 
+
+```{r fig.height = 10, fig.width = 12, warning = FALSE}
+glimpse(df_StudentData)
+
+summary(df_StudentData) %>% 
+  kable() %>% 
+  kable_styling() %>%
+  scroll_box()
+
+df_StudentData %>%
+  keep(is.numeric) %>%
+  gather() %>%
+  ggplot(aes(value)) + 
+  geom_histogram(bins = 15) + 
+  facet_wrap(~key, scales = "free") +
+  ggtitle("Histograms of Numerical Predictors")
+
+df_StudentData %>%
+  keep(is.numeric) %>%
+  gather() %>%
+  ggplot(aes(value)) + 
+  geom_boxplot() + 
+  facet_wrap(~key, scales = 'free') +
+  ggtitle("Boxplots of Numerical Predictors")
+```
+
+### Data Conversion
+
+`Brand.code` is the only categorical value and takes on the values: `A`, `B`, `C`, or `D`. It
+would be best to convert it to a factor.  `B` see,s to be the most common brand code, accounting for nearly
+half of the observations. 
+
+```{r}
+df_StudentData$Brand.Code <- as.factor(df_StudentData$Brand.Code)
+df_EvalData$Brand.Code <- as.factor(df_EvalData$Brand.Code)
+
+df_StudentData %>%
+  ggplot() + 
+  geom_bar(aes(x = Brand.Code)) + 
+  ggtitle("Distribution of the Brand Codes")
+```
+
+
+### Missing Data
+
+30 of the variables have missing values. `MFR` seems to be missing for  roughly `r round(212/2571 * 100 , 2)`% 
+of the data. `Brand_Code` has 120 missing values.
+
+```{r}
+df_StudentData %>%
+  summarise_all(list(~ sum(is.na(.)))) %>%
+  gather(variable, value) %>%
+  filter(value != 0) %>%
+  arrange(-value) %>%
+  kable() %>% 
+  kable_styling() %>%
+  scroll_box()
+```
+
+```{r}
+df_StudentData %>%
+  summarise_all(list(~is.na(.)))%>%
+  pivot_longer(everything(), names_to = "variables", values_to="missing") %>%
+  count(variables, missing) %>%
+  ggplot(aes(y = variables, x=n, fill = missing))+
+  geom_col(position = "fill") +
+  labs(title = "Proportion of Missing Values",
+       x = "Proportion") +
+  scale_fill_manual(values=c("grey","red"))
+```
+### Transforming the Data
+
+Next, we imputed the data using `mice()` from the `MICE` library. We also excluded any near zero-variance predictors, in this case, only `Hyd.Pressure1` was removed.
+
+```{r}
+set.seed(100)
+
+df_StudentData <- mice(df_StudentData, m = 1, method = 'pmm', print = FALSE) %>% complete()
+
+# filtering low frequencies
+df_StudentData <- df_StudentData[, -nearZeroVar(df_StudentData)]
+```
+
+There are no more missing values and the transformations are complete for now.
+
+```{r}
+df_StudentData %>%
+  summarise_all(list(~is.na(.)))%>%
+  pivot_longer(everything(), names_to = "variables", values_to="missing") %>%
+  count(variables, missing) %>%
+  ggplot(aes(y = variables, x=n, fill = missing))+
+  geom_col(position = "fill") +
+  labs(title = "Proportion of Missing Values",
+       x = "Proportion") +
+  scale_fill_manual(values=c("grey","red"))
+```
+
+## Model Building{.tabset}
+
+First, we split the data using an 80-20 split. Then we created various types of 
+regression models that include linear regression, non-linear regression, and regression trees.
+
+```{r}
+set.seed(100)
+
+
+# index for training
+index <- createDataPartition(df_StudentData$PH, p = .8, list = FALSE)
+
+# train 
+train_x <- df_StudentData[index, ] %>% select(-PH)
+train_y <- df_StudentData[index, 'PH']
+
+# test
+test_x <- df_StudentData[-index, ] %>% select(-PH)
+test_y <- df_StudentData[-index, 'PH']
+```
+
+### LM
+
+```{r}
+set.seed(100)
+
+# 10-fold cross-validation to make reasonable estimates
+ctrl <- trainControl(method = "cv", number = 10)
+
+lmModel <- train(train_x, train_y, method = "lm", trControl = ctrl) 
+
+lmPred <- predict(lmModel, test_x)
+
+postResample(lmPred, test_y)
+```
+#### PLS
+
+```{r}
+set.seed(100)
+
+plsTune <- train(train_x, train_y, 
+                 method = "pls", 
+                 tuneLength = 20, trControl = ctrl,
+                 preProc = c("center", "scale"))
+
+plsPred <- predict(plsTune, test_x)
+
+postResample(plsPred, test_y)
+```
+
+### MARS
+
+```{r}
+# create a tuning grid
+marsGrid <- expand.grid(.degree = 1:2, .nprune = 2:38)
+
+set.seed(100)
+
+# tune
+marsTune <- train(train_x, train_y,
+                  method = "earth",
+                  tuneGrid = marsGrid,
+                  trControl = trainControl(method = "cv"))
+
+marsPred <- predict(marsTune, test_x)
+
+postResample(marsPred, test_y)
+```
+
+### nnet
+
+```{r}
+# remove predictors to ensure maximum abs pairwise corr between predictors < 0.75
+tooHigh <-findCorrelation(cor(train_x[, -1]), cutoff = .75)
+
+# removing 9 variables and the factored variable
+train_x_nnet <- train_x[, -tooHigh]
+test_x_nnet <- test_x[, -tooHigh]
+
+# create a tuning grid
+nnetGrid <- expand.grid(.decay = c(0, 0.01, .1),
+                        .size = c(1:10))
+
+
+set.seed(100)
+
+# tune
+nnetTune <- train(train_x_nnet, train_y,
+                  method = "nnet",
+                  tuneGrid = nnetGrid,
+                  trControl = ctrl,
+                  preProc = c("center", "scale"),
+                  linout = TRUE,
+                  trace = FALSE,
+                  MaxNWts = 84851,
+                  maxit = 500)
+
+nnPred <- predict(nnetTune, test_x_nnet)
+
+postResample(nnPred, test_y)
+
+```
+
+### SVM
+
+```{r}
+set.seed(100)
+
+# tune
+svmRTune <- train(train_x[, -1], train_y,
+                  method = "svmRadial",
+                  preProc = c("center", "scale"),
+                  tuneLength = 14,
+                  trControl = trainControl(method = "cv"))
+
+svmRPred <- predict(svmRTune, test_x[, -1])
+
+postResample(svmRPred, test_y)
+```
+
+### Boosted Trees
+
+```{r}
+gbmGrid <- expand.grid(interaction.depth = seq(1, 7, by = 2),
+                       n.trees = seq(100, 1000, by = 50),
+                       shrinkage = c(0.01, 0.1),
+                       n.minobsinnode = 10)
+set.seed(100)
+
+gbmTune <- train(train_x, train_y,
+                 method = "gbm",
+                 tuneGrid = gbmGrid,
+                 verbose = FALSE)
+
+gbmPred <- predict(gbmTune, test_x)
+
+postResample(gbmPred, test_y)
+```
+
+### Random Forest
+
+```{r}
+set.seed(100)
+
+rfModel <- randomForest(train_x, train_y, 
+                        importance = TRUE,
+                        ntree = 1000)
+
+
+rfPred <- predict(rfModel, test_x)
+
+postResample(rfPred, test_y)
+```
+
+### Cubist
+
+```{r}
+set.seed(100)
+cubistTuned <- train(train_x, train_y, 
+                     method = "cubist")
+
+cubistPred <- predict(cubistTuned, test_x)
+
+postResample(cubistPred, test_y)
+```
+
+
+
+##{-}
+
+Based on the results, the lowest RMSE and the highest $R^2$ is found in the Random Forest model, 
+giving the best optimal resampling and test set performance.
+
+
+```{r}
+rbind(lm = postResample(lmPred, test_y),
+      pls = postResample(plsPred, test_y),
+      nn = postResample(nnPred, test_y),
+      mars = postResample(marsPred, test_y),
+      svmR = postResample(svmRPred, test_y),
+      randomForest = postResample(rfPred, test_y),
+      boosted = postResample(gbmPred, test_y),
+      cubist = postResample(cubistPred, test_y))
+```
+
+## Model Evaluation
+
+Random Forest was chosen as the best model. 
+
+%IncMSE is the Mean Decrease Accuracy which shows how much the model decreases if that varaible is excluded.
+On the other hand, IncNodePurity is Mean Decrease Gini which uses the Gini impurity index to measure the
+variable importance.
+
+Based on the Mean Decrease Accuracy, `Brand.Code` seems to be the most important variable,
+and `Mnf.Flow` is the second most important variable. When the Gini Impurity Index is used, it is considered
+the most important. 
+
+```{r, message = FALSE}
+rfImp <- varImp(rfModel, scale = TRUE) %>%
+  as.data.frame()
+
+rfImp %>%
+  arrange(-Overall) %>%
+  kable() %>% 
+  kable_styling() %>%
+  scroll_box()
+
+varImpPlot(rfModel, sort = TRUE, n.var = 10)
+```
+
+Disregarding, `Brand.Code`, `Mnf.Flow`, `Usage.cont`, `Air.Pressurer`, and`Temperarture` have 
+negative effects on the PH. `Mnf.Flow` and `Usage.cont` seem to affect it the most negatively. 
+`Oxygen.Filler`, `Pressure.Vacuum`, and `Carb.Rel` seem to affect the PH the most positively.
+
+
+```{r, message = FALSE}
+top10 <- varImp(rfModel) %>%
+  filter(Overall < 57) %>%
+  arrange(-Overall) %>%
+  head(10)
+
+
+df_StudentData %>%
+  select(c("PH", row.names(top10))) %>%
+  cor() %>%
+  corrplot() +
+  title("Correlation between PH and the Top 10 Numerical Variables")
+```
+
+Based on the transformed `Brand.Code`, the PH tends to be the lowest for those labeled
+"C" and highest for those labeled "D". "B" accounts for nearly half of the data, and has
+the second highest PH on average.
+
+```{r, fig.show="hold", out.width="50%", fig.height = 10, message = FALSE, warning = FALSE}
+df_StudentData %>%
+  ggplot(aes(x= PH)) +
+  geom_histogram(bins = 15) +
+  facet_wrap(~Brand.Code, ncol = 1)
+
+df_StudentData %>%
+  ggplot(aes(x= PH)) +
+  geom_boxplot() +
+  facet_wrap(~Brand.Code, ncol = 1)
+
+df_StudentData %>%
+  group_by(Brand.Code) %>%
+  summarise(`Average PH` = mean(PH))
+```
+
+### Forecasting
+
+The evaluation data has to be transformed before it can used in forecasting.
+
+```{r}
+set.seed(100)
+
+df_EvalData <- df_EvalData %>%
+  select(-PH) %>%
+  mice(., m = 1, method = 'pmm', print = FALSE) %>% complete()
+
+# remove Hyd.Pressure1 as it was removed in the preprocessing for Student Data
+# add back in PH
+df_EvalData <- df_EvalData %>%
+  select(-Hyd.Pressure1) %>%
+  mutate(PH = "")
+
+# predict PH
+prediction <- predict(rfModel, df_EvalData)
+
+head(prediction)
+
+# put the PH back into the data frame
+df_EvalData$PH <- prediction
+
+#average ph
+df_EvalData %>%
+  group_by(Brand.Code) %>%
+  summarise(`Average PH` = mean(PH))
+
+# export file
+write.xlsx(list('PH' = prediction, 'EvalData_complete' = df_EvalData), file = 'predictions_DJO.xlsx')
+
+
+
+```
+
+### Conclusion
+
+The PH values may seem somewhat similar, as they all range between 8 and 9. The patterns still
+uphold in our predictions when they are grouped by the `Brand.Code`. We also highlighted the variables that
+have the most affect on the PH. We hope that understanding more
+about the manufacturing process helps with the new regulations in the beverage industry.
+
+Random Forest model was able to capture the complexity of the data the best since it had the best
+$R^2$ and RMSE. After all, it consists of multiple decision trees and it is computationally efficient compared to the other models.
+
+
+
+
+
+
+
+
+
